@@ -16,3 +16,5 @@ auth-service/nats-chat-auth-service
 
 # OS
 .DS_Store
+
+.agent
