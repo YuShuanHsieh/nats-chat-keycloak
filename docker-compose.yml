@@ -13,9 +13,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200'"]
       interval: 10s
-      timeout: 5s
+      timeout: 15s
       retries: 30
-      start_period: 30s
+      start_period: 60s
 
   nats:
     image: nats:2.12
@@ -62,9 +62,12 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAME: auth-service
     depends_on:
-      - nats
-      - keycloak
-      - otel-collector
+      nats:
+        condition: service_started
+      keycloak:
+        condition: service_started
+      otel-collector:
+        condition: service_started
     restart: unless-stopped
 
   persist-worker:

@@ -33,23 +33,8 @@ func main() {
 		"keycloak_realm", cfg.KeycloakRealm,
 	)
 
-	// Initialize the Keycloak JWKS validator
-	validator, err := NewKeycloakValidator(cfg.KeycloakURL, cfg.KeycloakRealm, cfg.KeycloakIssuerURL)
-	if err != nil {
-		slog.Error("Failed to initialize Keycloak validator", "error", err)
-		os.Exit(1)
-	}
-	defer validator.Close()
-
-	// Build the auth handler
-	meter := otel.Meter("auth-service")
-	handler, err := NewAuthHandler(cfg, validator, meter)
-	if err != nil {
-		slog.Error("Failed to create auth handler", "error", err)
-		os.Exit(1)
-	}
-
-	// Connect to NATS as the auth callout user
+	// Step 1: Connect to NATS FIRST — this is fast and must happen before
+	// any other service triggers an auth callout.
 	var nc *nats.Conn
 	for attempt := 1; attempt <= 30; attempt++ {
 		nc, err = nats.Connect(cfg.NatsURL,
@@ -77,7 +62,19 @@ func main() {
 	defer nc.Close()
 	slog.Info("Connected to NATS", "url", nc.ConnectedUrl())
 
-	// Subscribe to the auth callout subject
+	// Step 2: Create the Keycloak validator (lazy — does NOT fetch JWKS yet).
+	// JWKS keys will be fetched on the first auth callout request via sync.Once.
+	validator := NewKeycloakValidator(cfg.KeycloakURL, cfg.KeycloakRealm, cfg.KeycloakIssuerURL)
+	defer validator.Close()
+
+	// Step 3: Build the auth handler and subscribe to the callout subject.
+	meter := otel.Meter("auth-service")
+	handler, err := NewAuthHandler(cfg, validator, meter)
+	if err != nil {
+		slog.Error("Failed to create auth handler", "error", err)
+		os.Exit(1)
+	}
+
 	sub, err := nc.Subscribe("$SYS.REQ.USER.AUTH", handler.Handle)
 	if err != nil {
 		slog.Error("Failed to subscribe to auth callout subject", "error", err)
